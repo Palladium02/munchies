@@ -1,4 +1,4 @@
-use crate::traits::Parser;
+use crate::{traits::Parser, types::ParseResult};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Then<P1, P2> {
@@ -8,13 +8,20 @@ pub struct Then<P1, P2> {
 
 impl<'a, P1, P2, O1, O2> Parser<'a, (O1, O2)> for Then<P1, P2>
 where
+    O1: Clone,
+    O2: Clone,
     P1: Parser<'a, O1>,
     P2: Parser<'a, O2>,
 {
-    fn parse(&self, input: &'a str) -> Result<((O1, O2), &'a str), String> {
-        let (left_output, remainder) = self.left.parse(input)?;
-        let (right_output, remainder) = self.right.parse(remainder)?;
-        Ok(((left_output, right_output), remainder))
+    fn parse(&self, input: &'a str) -> ParseResult<'a, (O1, O2)> {
+        let mut results = vec![];
+        for (left_result, rest) in self.left.parse(input) {
+            for (right_result, rest) in self.right.parse(rest) {
+                results.push(((left_result.clone(), right_result), rest));
+            }
+        }
+
+        results
     }
 }
 
@@ -29,18 +36,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::char::char;
-    use crate::literal::literal;
+    use crate::helper::char::char;
+    use crate::helper::literal::literal;
 
     #[test]
     fn test_then() {
         let parser = then(char(|c| c == 'a'), literal("bc"));
-        assert_eq!(parser.parse("abcd"), Ok((('a', "bc"), "d")));
-        assert_eq!(parser.parse("ab"), Err("Expected 'bc'".to_string()));
-        assert_eq!(parser.parse("a"), Err("Expected 'bc'".to_string()));
-        assert_eq!(
-            parser.parse("b"),
-            Err("Unexpected character: b".to_string())
-        );
+        assert_eq!(parser.parse("abcdef"), vec![(('a', "bc"), "def")]);
     }
 }

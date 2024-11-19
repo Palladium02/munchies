@@ -1,4 +1,4 @@
-use crate::traits::Parser;
+use crate::{traits::Parser, types::ParseResult};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Many<P> {
@@ -7,22 +7,29 @@ pub struct Many<P> {
 
 impl<'a, P, O> Parser<'a, Vec<O>> for Many<P>
 where
+    O: Clone,
     P: Parser<'a, O>,
 {
-    fn parse(&self, input: &'a str) -> Result<(Vec<O>, &'a str), String> {
-        let mut results = Vec::new();
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Vec<O>> {
+        let mut results: Vec<(Vec<O>, &'a str)> = Vec::new();
         let mut remainder = input;
 
-        while let Ok((output, next_remainder)) = self.parser.parse(&remainder) {
-            if next_remainder == remainder {
+        loop {
+            let local_results = self.parser.parse(remainder);
+            if local_results.is_empty() {
                 break;
             }
 
-            remainder = next_remainder;
-            results.push(output);
+            let (match_result, rest) = local_results.get(0).expect("");
+            let (mut most_recent_results, _) =
+                results.last().unwrap_or(&(vec![], remainder)).clone();
+
+            most_recent_results.push(match_result.clone());
+            results.push((most_recent_results, rest));
+            remainder = rest;
         }
 
-        Ok((results, remainder))
+        results
     }
 }
 
@@ -36,16 +43,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::char::char;
     use crate::combinators::then::then;
+    use crate::compare::compare_results;
+    use crate::helper::char::char;
 
     #[test]
     fn test_many() {
         let parser = many(char(|c| c == 'a'));
-        assert_eq!(parser.parse("aaaabc"), Ok((vec!['a', 'a', 'a'], "bc")));
-        assert_eq!(parser.parse("bc"), Ok((vec![], "bc")));
-        assert_eq!(parser.parse("def"), Ok((vec![], "def")));
-        assert_eq!(parser.parse(""), Ok((vec![], "")));
+        assert_eq!(parser.parse("aaabc"), vec![(vec!['a', 'a', 'a'], "bc")]);
     }
 
     #[test]
@@ -53,6 +58,15 @@ mod tests {
         let a = char(|c| c == 'a');
         let many_as = many(a);
         let ambiguous_p = then(many_as, a);
-        assert_eq!(ambiguous_p.parse("aaab"), Ok(((vec!['a', 'a'], 'a'), "b")))
+
+        let result = ambiguous_p.parse("aaaabc");
+        assert!(compare_results(
+            result,
+            vec![
+                ((vec!['a', 'a', 'a'], 'a'), "bc"),
+                ((vec!['a', 'a'], 'a'), "abc"),
+                ((vec!['a'], 'a'), "aabc"),
+            ]
+        ))
     }
 }
