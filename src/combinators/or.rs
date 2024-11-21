@@ -1,4 +1,7 @@
-use crate::{traits::Parser, types::ParseResult};
+use crate::{
+    traits::Parser,
+    types::{Either, ParseResult},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Or<P1, P2> {
@@ -6,18 +9,25 @@ pub struct Or<P1, P2> {
     right: P2,
 }
 
-impl<'a, P1, P2, O> Parser<'a, O> for Or<P1, P2>
+impl<'a, P1, P2, O1, O2> Parser<'a, Either<O1, O2>> for Or<P1, P2>
 where
-    P1: Parser<'a, O>,
-    P2: Parser<'a, O>,
+    P1: Parser<'a, O1>,
+    P2: Parser<'a, O2>,
 {
-    fn parse(&self, input: &'a str) -> ParseResult<'a, O> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Either<O1, O2>> {
         let left_result = self.left.parse(input);
         if !left_result.is_empty() {
-            return left_result;
+            return left_result
+                .into_iter()
+                .map(|(o, rest)| (Either::Left(o), rest))
+                .collect();
         }
 
-        self.right.parse(input)
+        self.right
+            .parse(input)
+            .into_iter()
+            .map(|(o, rest)| (Either::Right(o), rest))
+            .collect()
     }
 }
 
@@ -37,6 +47,7 @@ mod tests {
     #[test]
     fn test_or() {
         let parser = or(literal("a"), literal("bc"));
-        assert_eq!(parser.parse("abc"), vec![("a", "bc")]);
+        // assert_eq!(parser.parse("abc"), vec![("a", "bc")]);
+        assert_eq!(parser.parse("abc"), vec![(Either::Left("a"), "bc")]);
     }
 }
